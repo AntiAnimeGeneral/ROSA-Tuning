@@ -70,6 +70,16 @@ In our experiments, ROSA-Tuning demonstrates even greater advantages on 32k and 
 - **Minimal GPU overhead:** ROSA core is parameter-free and runs on CPU; GPU only performs small vocabulary projection and representation injection, significantly saving the $O(T^2)$ cost of global attention.  
 - **Windowed attention handles arbitrary-length sequences:** Cross-window information passes through ROSA's discrete channel, while windowed attention only performs local fusion.  
 
+### 中文速览（ROSA 架构在做什么 / 一层几个 ROSA 头 / 占用多少参数）
+
+- **ROSA 在做什么：**先把每层隐状态通过 `rosa_q_proj/rosa_k_proj/rosa_v_proj` 映射后做二值化，再按 route（头）分组打包成离散符号；CPU 侧用 suffix matching 在历史序列里检索可复制位置；最后把检索到的 bit 还原成注入向量，经 `rosa_out` 回写到主干（`pre_attn` 或 `post_attn`）。  
+- **一层有几个 ROSA 头：**代码里 `R = C / M`，其中 `C=hidden_size`，`M=BITS_PER_ROUTE`（默认 4）。所以每层 ROSA 头数是 `hidden_size / BITS_PER_ROUTE`。例如 `C=2048, M=4` 时，`R=512`。  
+- **一层新增参数量：**每层新增模块是 `rosa_q_proj(C*C) + rosa_k_proj(C*C) + rosa_v_proj(C*C) + rosa_out(C*C) + rosa_e0(C) + rosa_e1(C) + rosa_alpha(C)`，合计  
+  $$
+  4C^2 + 3C
+  $$
+  个参数（不含原模型参数）。例如 `C=2048` 时，每层约 `16,783,360` 参数。实现中默认跳过第 0 层，所以总新增参数约为 `(num_hidden_layers - 1) \times (4C^2 + 3C)`。
+
 
 ---
 
@@ -262,4 +272,3 @@ This project mainly focuses on reproducing and exploring the application of the 
 More detailed experiments, hardware optimizations, more powerful ROSA-Tuning methods, and related papers will be released soon.  
 
 Additionally, this project will release new ROSA-Tuning methods daily in the coming days. Stay tuned.
-
